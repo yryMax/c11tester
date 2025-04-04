@@ -88,7 +88,7 @@ ModelChecker::ModelChecker() :
 	model_print("C11Tester\n"
 							"Copyright (c) 2013 and 2019 Regents of the University of California. All rights reserved.\n"
 							"Distributed under the GPLv2\n"
-							"Written by Weiyu Luo, Brian Norris, and Brian Demsky\n\n");
+							"Written by Weiyu Luo, Brian Norris, and Brian Demsky, and modified by LULUQAQ.\n\n");
 	init_memory_ops();
 	real_memset(&stats,0,sizeof(struct execution_stats));
 	init_thread = new Thread(execution->get_next_id(), (thrd_t *) model_malloc(sizeof(thrd_t)), &placeholder, NULL, NULL);
