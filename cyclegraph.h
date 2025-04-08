@@ -30,12 +30,10 @@ public:
 	bool checkReachable(const ModelAction *from, const ModelAction *to) const;
 	void freeAction(const ModelAction * act);
     SnapVector<CycleNode *> nodeList;
-#if SUPPORT_MOD_ORDER_DUMP
 	void dumpNodes(FILE *file) const;
 	void dumpGraphToFile(const char *filename) const;
 	void dot_print_node(FILE *file, const ModelAction *act);
 	void dot_print_edge(FILE *file, const ModelAction *from, const ModelAction *to, const char *prop);
-#endif
 
 	CycleNode * getNode_noCreate(const ModelAction *act) const;
 	SNAPSHOTALLOC
@@ -48,8 +46,6 @@ private:
 	HashTable<const ModelAction *, CycleNode *, uintptr_t, 4> actionToNode;
 	SnapVector<const CycleNode *> * queue;
 
-	/** Detect cycle */
-    bool dfsCycleDetect(CycleNode* node, std::unordered_map<CycleNode*, int>& state);
 
 
 	bool checkReachable(const CycleNode *from, const CycleNode *to) const;

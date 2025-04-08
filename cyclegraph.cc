@@ -5,63 +5,7 @@
 #include "clockvector.h"
 #include <unordered_map>
 
-enum NodeState { WHITE, GRAY, BLACK }; // Unvisited, been visited, fully processed
 
-// DFS function to detect cycles
-bool CycleGraph::dfsCycleDetect(CycleNode* node, std::unordered_map<CycleNode*, int>& state) {
-    if (state[node] == GRAY) {
-        return true;
-    }
-    if (state[node] == BLACK) {
-        return false; // Already fully processed, no need to check again
-    }
-
-    state[node] = GRAY;
-
-    for (unsigned int i = 0; i < node->getNumEdges(); i++) {
-        if (dfsCycleDetect(node->getEdge(i), state)) {
-            return true;
-        }
-    }
-
-    // Mark node as fully processed
-    state[node] = BLACK;
-    return false;
-}
-
-// Public function to check if the CycleGraph contains a cycle
-// Returns true if a cycle is found, false otherwise
-bool CycleGraph::hasCycle() {
-    std::unordered_map<CycleNode*, int> state;
-
-
-    for (unsigned int i = 0; i < actionToNode.capacity; i++) {
-        struct hashlistnode<const ModelAction *, CycleNode *> *node = &actionToNode.table[i];
-        if (node->key != NULL) {
-            state[node->val] = WHITE;
-        }
-    }
-    if (actionToNode.zero != NULL) {
-        state[actionToNode.zero->val] = WHITE;
-    }
-
-
-    for (unsigned int i = 0; i < actionToNode.capacity; i++) {
-        struct hashlistnode<const ModelAction *, CycleNode *> *node = &actionToNode.table[i];
-        if (node->key != NULL && state[node->val] == WHITE) {
-            if (dfsCycleDetect(node->val, state)) {
-                return true;
-            }
-        }
-    }
-    if (actionToNode.zero != NULL && state[actionToNode.zero->val] == WHITE) {
-        if (dfsCycleDetect(actionToNode.zero->val, state)) {
-            return true;
-        }
-    }
-
-    return false;
-}
 
 /** Initializes a CycleGraph object. */
 CycleGraph::CycleGraph() :
