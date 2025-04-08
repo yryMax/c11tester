@@ -11,6 +11,7 @@
 
 #include <inttypes.h>
 #include <stdio.h>
+#include <unordered_map>
 
 #include "hashtable.h"
 #include "config.h"
@@ -29,6 +30,8 @@ public:
 	void addRMWEdge(ModelAction *from, ModelAction *rmw);
 	bool checkReachable(const ModelAction *from, const ModelAction *to) const;
 	void freeAction(const ModelAction * act);
+    bool isSCCompatible(const CycleGraph* relation_graph);
+	bool hasCycle();
     SnapVector<CycleNode *> nodeList;
 #if SUPPORT_MOD_ORDER_DUMP
 	void dumpNodes(FILE *file) const;
@@ -52,7 +55,12 @@ private:
     bool dfsCycleDetect(CycleNode* node, std::unordered_map<CycleNode*, int>& state);
 
 
+
+
+
 	bool checkReachable(const CycleNode *from, const CycleNode *to) const;
+
+    bool isSCCompatible(CycleGraph *relation_graph);
 };
 
 /**

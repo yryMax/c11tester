@@ -4,6 +4,7 @@
 #include <stdarg.h>
 #include <errno.h>
 
+
 #include "model.h"
 #include "execution.h"
 #include "action.h"
@@ -78,6 +79,9 @@ ModelExecution::ModelExecution(ModelChecker *m, Scheduler *scheduler) :
 	thrd_last_fence_release(),
 	priv(new struct model_snapshot_members ()),
 	mo_graph(new CycleGraph()),
+    test_graph(new CycleGraph()),
+    relation_graph(new Graph()),
+	invalid_execution(false),
 	fuzzer(new Fuzzer()),
 	isfinished(false)
 {
@@ -91,6 +95,261 @@ ModelExecution::ModelExecution(ModelChecker *m, Scheduler *scheduler) :
 #endif
 }
 
+/*bool ModelExecution::checkCycleGraph_v2(ModelAction* act1, const ModelAction* act2, SnapVector<ModelAction *> * priorset) {
+    Graph g;
+    model_print("________________ Beginning Cycle Graph Check ________________\n");
+
+    // 1. Add the "final" ordering constraints.
+    // We add an edge from act2 to act1.
+    g.add_edge(act2->get_seq_number(), act1->get_seq_number());
+    model_print("Adding FINAL edge %u -> %u\n", act2->get_seq_number(), act1->get_seq_number());
+
+    // For every candidate action in priorset add an edge from that action to act2.
+    for (unsigned int i = 0; i < priorset->size(); i++) {
+        unsigned int src = (*priorset)[i]->get_seq_number();
+        unsigned int dest = act2->get_seq_number();
+        g.add_edge(src, dest);
+        model_print("Adding FINAL derived edge %u -> %u\n", src, dest);
+    }
+
+    // 2. Add edges from our memory–ordering graph (mo_graph).
+    for (unsigned int i = 0; i < mo_graph->nodeList.size(); i++) {
+        CycleNode* node = mo_graph->nodeList[i];
+        unsigned int src_seq = node->getAction()->get_seq_number();
+        // If there's an RMW edge, add it.
+        if (node->getRMW() != NULL) {
+            unsigned int dest_seq = node->getRMW()->getAction()->get_seq_number();
+            g.add_edge(src_seq, dest_seq);
+            model_print("Adding RMW edge %u -> %u\n", src_seq, dest_seq);
+        }
+        // Add all the mo (modification order) edges.
+        for (unsigned int j = 0; j < node->getNumEdges(); j++) {
+            unsigned int dest_seq = node->getEdge(j)->getAction()->get_seq_number();
+            g.add_edge(src_seq, dest_seq);
+            model_print("Adding mo edge %u -> %u\n", src_seq, dest_seq);
+        }
+    }
+
+    // 3. Add edges from the global action trace.
+    // Maintain a per–thread last–action mapping so that we add a program–order edge
+    // from the last action of each thread to its current action.
+    unsigned int num_threads = get_num_threads();
+    std::vector<unsigned int> last_po(num_threads, 0); // initialized to 0
+
+    // Traverse the action_trace list in order.
+    for (sllnode<ModelAction*>* it = action_trace.begin(); it != NULL; it = it->getNext()) {
+        ModelAction* act = it->getVal();
+        unsigned int act_seq = act->get_seq_number();
+        int tid = act->get_tid();
+
+        // (a) Program Order edge from the previous action of this thread.
+        if (last_po[tid] != 0) {
+            g.add_edge(last_po[tid], act_seq);
+            model_print("Adding po edge %u -> %u\n", last_po[tid], act_seq);
+        }
+        last_po[tid] = act_seq;
+
+        // (b) Read–From edge: For a read, add an edge from its read–from action.
+        if (act->is_read()) {
+            ModelAction* rf = act->get_reads_from();
+            if (rf != NULL && rf->get_seq_number() < act_seq) {
+                g.add_edge(rf->get_seq_number(), act_seq);
+                model_print("Adding rf edge %u -> %u\n", rf->get_seq_number(), act_seq);
+            }
+
+            // (c) From–Read edges: For each write that follows in the trace and is on the same variable,
+            // add an edge from the read to that later write.
+            for (sllnode<ModelAction*>* it2 = it->getNext(); it2 != NULL; it2 = it2->getNext()) {
+                ModelAction* later_act = it2->getVal();
+                // Only add if later_act is a write on the same variable.
+                if (later_act->is_write() && later_act->same_var(act) && later_act->get_seq_number() > act_seq) {
+                    g.add_edge(act_seq, later_act->get_seq_number());
+                    model_print("Adding fr edge %u -> %u\n", act_seq, later_act->get_seq_number());
+                }
+            }
+        }
+    }
+
+    // 4. Check if the constructed graph has a cycle.
+    if (g.has_cycle()) {
+        model_print("Cycle detected in the graph!\n");
+        return true;
+    } else {
+        model_print("No cycle in the graph.\n");
+        return false;
+    }
+}*/
+
+bool ModelExecution::w_checkCycleGraph() {
+    Graph g;
+    model_print("________________IN w_checkCycleGraph__________________\n");
+
+
+    for (unsigned int i = 0; i < mo_graph->nodeList.size(); i++) {
+        CycleNode* n = mo_graph->nodeList[i];
+        unsigned int src_seq = n->getAction()->get_seq_number();
+
+
+        // mo
+        for (unsigned int j = 0; j < n->getNumEdges(); j++) {
+            unsigned int dest_seq = n->getEdge(j)->getAction()->get_seq_number();
+            g.add_edge(src_seq, dest_seq);
+            model_print("Adding mo edge %u -> %u\n", src_seq, dest_seq);
+        }
+    }
+
+    ModelAction** thread_array = (ModelAction**)model_calloc(1, sizeof(ModelAction*) * get_num_threads());
+
+    for (sllnode<ModelAction*>* it = action_trace.begin();it != NULL;it=it->getNext()) {
+        ModelAction* act = it->getVal();
+        unsigned int act_seq = act->get_seq_number();
+        bool is_write = act->is_write();
+
+        // rf
+        if (act->is_read()) {
+            ModelAction* rf = act->get_reads_from();
+            if (rf) {
+                g.add_edge(rf->get_seq_number(), act_seq);
+                model_print("Adding rf edge %u -> %u\n", rf->get_seq_number(), act_seq);
+            }
+        }
+
+        // TODO: more po a fake update then rollback????????? action trace???? fake append?
+        int tid = act->get_tid();
+        if (thread_array[tid]) {
+            g.add_edge(thread_array[id_to_int(tid)]->get_seq_number(), act_seq);
+            model_print("Adding po edge %u -> %u\n", thread_array[id_to_int(tid)]->get_seq_number(), act_seq);
+        }
+        thread_array[tid] = act;
+
+        // TODO: more fr, how to do it properly????????????
+
+        if (act->is_read()) {
+            ModelAction* rf = act->get_reads_from();
+            if (rf) {
+                for (sllnode<ModelAction*>* it2 = action_trace.begin(); it2 != NULL; it2 = it2->getNext()) {
+                    ModelAction* later_act = it2->getVal();
+                    if (later_act == act) continue;
+                    if (later_act->is_write() && later_act->same_var(act)) {
+                        if (g.is_reachable(rf->get_seq_number(), later_act->get_seq_number()) && rf != later_act) {
+                            g.add_edge(act_seq, later_act->get_seq_number());
+                            model_print("Adding fr edge %u -> %u\n", act_seq, later_act->get_seq_number());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    model_free(thread_array);
+
+    if (g.has_cycle()) {
+        model_print("________________FOUND CYCLE in w_checkCycleGraph__________________\n");
+        return true;
+    } else {
+        model_print("______________NO CYCLE in w_checkCycleGraph__________________\n");
+        return false;
+    }
+
+}
+
+bool ModelExecution::r_checkCycleGraph(ModelAction* act1, const ModelAction* act2, SnapVector<ModelAction *> * priorset){
+    Graph g;
+    model_print("________________IN r_checkCycleGraph__________________\n");
+
+
+    for (unsigned int i = 0; i < mo_graph->nodeList.size(); i++) {
+        CycleNode* n = mo_graph->nodeList[i];
+        unsigned int src_seq = n->getAction()->get_seq_number();
+
+
+        // mo
+        for (unsigned int j = 0; j < n->getNumEdges(); j++) {
+            unsigned int dest_seq = n->getEdge(j)->getAction()->get_seq_number();
+            g.add_edge(src_seq, dest_seq);
+            model_print("Adding mo edge %u -> %u\n", src_seq, dest_seq);
+            if (src_seq >= dest_seq) {
+                model_print("!!!!!!!!!!!!\n");
+            }
+        }
+    }
+
+    g.add_edge(act2->get_seq_number(), act1->get_seq_number());
+    model_print("Adding FINAL edge %u -> %u\n", act2->get_seq_number(), act1->get_seq_number());
+    for (unsigned int i = 0; i < priorset->size(); i++) {
+        g.add_edge((*priorset)[i]->get_seq_number(), act2->get_seq_number());
+        model_print("adding FINAL derived edge %u -> %u\n", (*priorset)[i]->get_seq_number(), act2->get_seq_number());
+        if ((*priorset)[i]->get_seq_number() >= act2->get_seq_number()) {
+            model_print("!!!!!!!!!!!!\n");
+        }
+    }
+
+    ModelAction** thread_array = (ModelAction**)model_calloc(1, sizeof(ModelAction*) * get_num_threads());
+
+    for (sllnode<ModelAction*>* it = action_trace.begin();it != NULL;it=it->getNext()) {
+        ModelAction* act = it->getVal();
+        unsigned int act_seq = act->get_seq_number();
+        bool is_write = act->is_write();
+
+        // rf
+        if (act->is_read()) {
+            ModelAction* rf = act->get_reads_from();
+            if (rf) {
+                g.add_edge(rf->get_seq_number(), act_seq);
+                model_print("Adding rf edge %u -> %u\n", rf->get_seq_number(), act_seq);
+                if (rf->get_seq_number() >= act_seq) {
+                    model_print("!!!!!!!!!!!!\n");
+                }
+            }
+        }
+
+        // TODO: more po a fake update then rollback????????? action trace???? fake append?
+        int tid = act->get_tid();
+        if (thread_array[tid]) {
+            g.add_edge(thread_array[id_to_int(tid)]->get_seq_number(), act_seq);
+            model_print("Adding po edge %u -> %u\n", thread_array[id_to_int(tid)]->get_seq_number(), act_seq);
+            if (thread_array[id_to_int(tid)]->get_seq_number() >= act_seq) {
+                model_print("!!!!!!!!!!!!\n");
+            }
+        }
+        thread_array[tid] = act;
+
+        // TODO: more fr, how to do it properly????????????
+
+        if (act->is_read()) {
+            ModelAction* rf = act->get_reads_from();
+            if (rf) {
+                for (sllnode<ModelAction*>* it2 = action_trace.begin(); it2 != NULL; it2 = it2->getNext()) {
+                    ModelAction* later_act = it2->getVal();
+                    if (later_act == act) continue;
+                    if (later_act->is_write() && later_act->same_var(act)) {
+                        if (g.is_reachable(rf->get_seq_number(), later_act->get_seq_number()) && rf != later_act) {
+                            g.add_edge(act_seq, later_act->get_seq_number());
+                            model_print("Adding fr edge %u -> %u\n", act_seq, later_act->get_seq_number());
+                            if (act_seq >= later_act->get_seq_number()) {
+                                model_print("!!!!!!!!!!!!\n");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    model_free(thread_array);
+
+    if (g.has_cycle()) {
+        model_print("________________FOUND CYCLE in r_checkCycleGraph__________________\n");
+        return true;
+    } else {
+       model_print("______________NO CYCLE in r_checkCycleGraph__________________\n");
+        return false;
+    }
+
+
+}
+
+
 /** @brief Destructor */
 ModelExecution::~ModelExecution()
 {
@@ -98,6 +357,7 @@ ModelExecution::~ModelExecution()
 		delete get_thread(int_to_id(i));
 
 	delete mo_graph;
+    delete relation_graph;
 	delete priv;
 }
 
@@ -410,15 +670,27 @@ bool ModelExecution::process_read(ModelAction *curr, SnapVector<ModelAction *> *
 	   }*/
 
 	while(true) {
+        // randomly select a write to read from
 		int index = fuzzer->selectWrite(curr, rf_set);
 
 		ModelAction *rf = (*rf_set)[index];
 
 		ASSERT(rf);
 		bool canprune = false;
+        model_print("selecting rf %u\n", rf->get_seq_number());
 		if (r_modification_order(curr, rf, priorset, &canprune)) {
-			for(unsigned int i=0;i<priorset->size();i++) {
+
+            for (unsigned int i = 0; i < priorset->size(); i++) {
+                relation_graph->add_edge((*priorset)[i]->get_seq_number(), rf->get_seq_number());
+                //printf("adding mo edge %u -> %u\n", (*priorset)[i]->get_seq_number(), rf->get_seq_number());
+            }
+            relation_graph->add_edge(rf->get_seq_number(), curr->get_seq_number());
+
+            //printf("adding rf edge %u -> %u \n", rf->get_seq_number(), curr->get_seq_number());;
+
+            for(unsigned int i=0;i<priorset->size();i++) {
 				mo_graph->addEdge((*priorset)[i], rf);
+                test_graph->addEdge((*priorset)[i], rf);
 			}
 			read_from(curr, rf);
 			get_thread(curr)->set_return_value(rf->get_write_value());
@@ -870,7 +1142,20 @@ ModelAction * ModelExecution::check_current_action(ModelAction *curr)
 
 	if (curr->is_mutex_op())
 		process_mutex(curr);
-
+/*
+	// *** Cycle-detection check for SC consistency ***
+    if (relation_graph->hasCycle()) {
+        model_print("Cycle detected in relation_graph. Marking execution as invalid for SC consistency.\n");
+        mark_invalid();
+        return NULL; // Return NULL to signal that this branch must backtrack.
+    }
+*/
+/*
+    model_print("before id in check_current_action\n");
+    if (test_graph->hasCycle()) {
+        model_print("-------TEST_GRAPH has CYCLE!!------, in check current action!! \n");
+        return NULL;
+    }*/
 	return curr;
 }
 
@@ -879,7 +1164,8 @@ ModelAction * ModelExecution::process_rmw(ModelAction *act) {
 	ModelAction *lastread = get_last_action(act->get_tid());
 	lastread->process_rmw(act);
 	if (act->is_rmw()) {
-		mo_graph->addRMWEdge(lastread->get_reads_from(), lastread);
+        test_graph->addRMWEdge(lastread->get_reads_from(), lastread);
+        relation_graph->add_edge(lastread->get_reads_from()->get_seq_number(), lastread->get_seq_number());
 	}
 	return lastread;
 }
@@ -1024,6 +1310,92 @@ bool ModelExecution::r_modification_order(ModelAction *curr, const ModelAction *
 	return true;
 }
 
+
+
+
+bool ModelExecution::r_modification_order_sc(ModelAction *curr, const ModelAction *rf,
+                                          SnapVector<ModelAction *> * priorset, bool * canprune)
+{
+    SnapVector<action_list_t> *thrd_lists = obj_thrd_map.get(curr->get_location());
+    ASSERT(curr->is_read());
+
+    /* Last SC fence in the current thread */
+    ModelAction *last_sc_fence_local = get_last_seq_cst_fence(curr->get_tid(), NULL);
+
+    int tid = curr->get_tid();
+
+    /* Need to ensure thrd_lists is big enough because we have not added the curr actions yet.  */
+    if ((int)thrd_lists->size() <= tid) {
+        uint oldsize = thrd_lists->size();
+        thrd_lists->resize(priv->next_thread_id);
+        for(uint i = oldsize;i < priv->next_thread_id;i++)
+            new (&(*thrd_lists)[i]) action_list_t();
+
+        fixup_action_list(thrd_lists);
+    }
+    /* Iterate over all threads */
+    for (unsigned int i = 0;i < thrd_lists->size();i++, tid = (((unsigned int)(tid+1)) == thrd_lists->size()) ? 0 : tid + 1) {
+
+        /* Iterate over actions in thread, starting from most recent */
+        action_list_t *list = &(*thrd_lists)[tid];
+        sllnode<ModelAction *> * rit;
+        for (rit = list->end();rit != NULL;rit=rit->getPrev()) {
+            ModelAction *act = rit->getVal();
+
+            /* Skip curr */
+            if (act == curr)
+                continue;
+            /* Don't want to add reflexive edges on 'rf' */
+            if (act->equals(rf)) {
+                if (act->happens_before(curr))
+                    break;
+                else
+                    continue;
+            }
+
+
+            if (act->is_write()) {
+                if (mo_graph->checkReachable(rf, act))
+                    return false;
+                priorset->push_back(act);
+                break;
+            }
+            /*
+             * Include at most one act per-thread that "happens
+             * before" curr
+             */
+            if (act->happens_before(curr)) {
+                if (act->is_write()) {
+                    if (mo_graph->checkReachable(rf, act))
+                        return false;
+                    priorset->push_back(act);
+                } else {
+                    ModelAction *prevrf = act->get_reads_from();
+                    if (!prevrf->equals(rf)) {
+                        if (mo_graph->checkReachable(rf, prevrf))
+                            return false;
+                        priorset->push_back(prevrf);
+                    } else {
+                        if (act->get_tid() == curr->get_tid()) {
+                            //Can prune curr from obj list
+                            *canprune = true;
+                        }
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    if (r_checkCycleGraph(curr,rf, priorset)) {
+        model_print("BLOOCKED in modification_order_sc\n");
+        return false;
+    }
+
+    return true;
+}
+
+
 /**
  * Updates the mo_graph with the constraints imposed from the current write.
  *
@@ -1132,8 +1504,90 @@ void ModelExecution::w_modification_order(ModelAction *curr)
 		}
 	}
 	mo_graph->addEdges(&edgeset, curr);
+    test_graph->addEdges(&edgeset, curr);
 
 }
+
+
+
+void ModelExecution::w_modification_order_sc(ModelAction *curr)
+{
+    SnapVector<action_list_t> *thrd_lists = obj_thrd_map.get(curr->get_location());
+    ASSERT(curr->is_write());
+
+    SnapList<ModelAction *> edgeset;
+
+
+    if (curr->is_seqcst()) {
+        ModelAction *last_seq_cst = get_last_seq_cst_write(curr);
+        if (last_seq_cst != NULL) {
+            edgeset.push_back(last_seq_cst);
+        }
+        obj_last_sc_map.put(curr->get_location(), curr);
+    }
+
+
+    for (unsigned int i = 0; i < thrd_lists->size(); i++) {
+        action_list_t *list = &(*thrd_lists)[i];
+        sllnode<ModelAction*>* rit;
+        for (rit = list->end(); rit != NULL; rit = rit->getPrev()) {
+            ModelAction *act = rit->getVal();
+            if (act == curr) {
+
+                if (curr->is_rmw()) {
+                    if (curr->get_reads_from() != NULL)
+                        break;
+                    else
+                        continue;
+                } else {
+                    continue;
+                }
+            }
+
+
+            if (act->happens_before(curr)) {
+                if (act->is_write()) {
+                    edgeset.push_back(act);
+                } else if (act->is_read()) {
+                    ModelAction *rf = act->get_reads_from();
+                    if (rf != NULL) {
+                        edgeset.push_back(rf);
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+
+    mo_graph->addEdges(&edgeset, curr);
+    test_graph->addEdges(&edgeset, curr);
+
+
+    if (thrd_lists) {
+        for (unsigned int i = 0; i < thrd_lists->size(); i++) {
+            action_list_t *list = &(*thrd_lists)[i];
+            for (sllnode<ModelAction*>* rit = list->end(); rit != NULL; rit = rit->getPrev()) {
+                ModelAction *prev_read = rit->getVal();
+                if (prev_read == curr) continue;
+                if (prev_read->is_read()) {
+                    ModelAction *rf = prev_read->get_reads_from();
+                    if (rf != NULL && mo_graph->checkReachable(rf, curr)) {
+                        mo_graph->addEdge(prev_read, curr);
+                        test_graph->addEdge(prev_read, curr);
+                 //       printf("fr edge: %u -> %u\n", curr->get_seq_number(), prev_read->get_seq_number());
+                    }
+                }
+            }
+        }
+    }
+    if (w_checkCycleGraph()){
+        model_print("------BLOCKED IN w_modification_order-------");
+        //set_assert();
+    }
+}
+
+
 
 /**
  * Computes the clock vector that happens before propagates from this write.
@@ -1207,6 +1661,15 @@ ClockVector * ModelExecution::get_hb_from_write(ModelAction *rf) const {
 void ModelExecution::add_action_to_lists(ModelAction *act, bool canprune)
 {
 	int tid = id_to_int(act->get_tid());
+
+
+    // add po edge
+    ModelAction* last = get_last_action(tid);
+    if (last) {
+        relation_graph->add_edge(last->get_seq_number(), act->get_seq_number());
+        //printf("add po edge from %u -> %u\n", last->get_seq_number(), act->get_seq_number());
+    }
+
 	if ((act->is_fence() && act->is_seqcst()) || act->is_unlock()) {
 		simple_action_list_t *list = get_safe_ptr_action(&obj_map, act->get_location());
 		act->setActionRef(list->add_back(act));
@@ -1245,6 +1708,8 @@ void ModelExecution::add_action_to_lists(ModelAction *act, bool canprune)
 		void *mutex_loc = (void *) act->get_value();
 		act->setActionRef(get_safe_ptr_action(&obj_map, mutex_loc)->add_back(act));
 	}
+
+
 }
 
 void insertIntoActionList(action_list_t *list, ModelAction *act) {
@@ -1436,6 +1901,8 @@ bool valequals(uint64_t val1, uint64_t val2, int size) {
 	}
 }
 
+
+
 /**
  * Build up an initial set of all past writes that this 'read' action may read
  * from, as well as any previously-observed future values that must still be valid.
@@ -1552,6 +2019,25 @@ void ModelExecution::dumpGraph(char *filename)
 															 act,
 															 "label=\"sb\", color=blue, weight=400");
 		}
+
+        if (act->is_read()) {
+            ModelAction *rf = act->get_reads_from();
+            if (rf != NULL) {
+                for (sllnode<ModelAction*>* it2 = action_trace.begin(); it2 != NULL; it2 = it2->getNext()) {
+                    ModelAction *later_act = it2->getVal();
+                    if (later_act == act) continue;
+                    if (later_act->is_write() && later_act->same_var(act)) {
+                        // if a write is after rf
+                        if (mo_graph->checkReachable(rf, later_act)) {
+                            mo_graph->dot_print_edge(file,
+                                                     act,
+                                                     later_act,
+                                                     "label=\"fr\", color=green, weight=1");
+                        }
+                    }
+                }
+            }
+        }
 
 		thread_array[act->get_tid()] = act;
 	}
@@ -1713,6 +2199,18 @@ bool ModelExecution::is_enabled(thread_id_t tid) const
  */
 Thread * ModelExecution::action_select_next_thread(const ModelAction *curr) const
 {
+    /*
+	// Check if the execution is marked invalid. If so, signal backtracking.
+    if (this -> is_invalid()) {
+        printf("Killing invalid execution....\n");
+        model_print("Killing invalid execution....\n");
+        return NULL;
+    }
+     */
+    /*if (relation_graph->has_cycle()) {
+        model_print("-----------RELATION_GRAPH HAS CYCLE IN action_select_next----------");
+        return NULL;
+    }*/
 	/* Do not split atomic RMW */
 	if (curr->is_rmwr())
 		return get_thread(curr);
@@ -1739,6 +2237,11 @@ Thread * ModelExecution::take_step(ModelAction *curr)
 
 	ASSERT(check_action_enabled(curr));	/* May have side effects? */
 	curr = check_current_action(curr);
+    /*
+    if (curr == NULL){
+        set_assert();
+        return NULL;
+    }*/
 	ASSERT(curr);
 
 	/* Process this action in ModelHistory for records */
@@ -1784,6 +2287,7 @@ void ModelExecution::removeAction(ModelAction *act) {
 
 		//Remove from Cyclegraph
 		mo_graph->freeAction(act);
+        test_graph->freeAction(act);
 	}
 }
 

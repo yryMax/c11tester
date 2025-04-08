@@ -18,6 +18,7 @@
 #include "mutex.h"
 #include <condition_variable>
 #include "classlist.h"
+#include "simple_graph.h"
 
 #define INITIAL_THREAD_ID	0
 #define MAIN_THREAD_ID		1
@@ -96,6 +97,13 @@ public:
 	void restore_last_seq_num();
 	void collectActions();
 	modelclock_t get_curr_seq_num();
+
+	// SC-consistency
+    void mark_invalid() { invalid_execution = true; }
+    bool is_invalid() const { return invalid_execution; }
+    bool r_checkCycleGraph(ModelAction* act1, const ModelAction* act2, SnapVector<ModelAction *> * priorset);
+    bool w_checkCycleGraph();
+    bool checkCycleGraph_v2(ModelAction* act1, const ModelAction* act2, SnapVector<ModelAction *> * priorset);
 #ifdef TLS
 	pthread_key_t getPthreadKey() {return pthreadkey;}
 #endif
@@ -124,7 +132,10 @@ private:
 	SnapVector<ModelAction *> * build_may_read_from(ModelAction *curr);
 	ModelAction * process_rmw(ModelAction *curr);
 	bool r_modification_order(ModelAction *curr, const ModelAction *rf, SnapVector<ModelAction *> *priorset, bool *canprune);
+    bool r_modification_order_sc(ModelAction *curr, const ModelAction *rf, SnapVector<ModelAction *> *priorset, bool *canprune);
 	void w_modification_order(ModelAction *curr);
+    void w_modification_order_sc(ModelAction *curr);
+
 	ClockVector * get_hb_from_write(ModelAction *rf) const;
 	ModelAction * convertNonAtomicStore(void*);
 	ClockVector * computeMinimalCV();
@@ -204,9 +215,15 @@ private:
 	 */
 	CycleGraph * const mo_graph;
 
+    CycleGraph * const test_graph;
+
+    Graph * const relation_graph;
+
 	Fuzzer * fuzzer;
 
 	Thread * action_select_next_thread(const ModelAction *curr) const;
+
+	bool invalid_execution;
 
 	bool isfinished;
 };
