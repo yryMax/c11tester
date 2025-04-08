@@ -29,6 +29,7 @@ public:
 	void addRMWEdge(ModelAction *from, ModelAction *rmw);
 	bool checkReachable(const ModelAction *from, const ModelAction *to) const;
 	void freeAction(const ModelAction * act);
+    SnapVector<CycleNode *> nodeList;
 #if SUPPORT_MOD_ORDER_DUMP
 	void dumpNodes(FILE *file) const;
 	void dumpGraphToFile(const char *filename) const;
@@ -47,9 +48,9 @@ private:
 	HashTable<const ModelAction *, CycleNode *, uintptr_t, 4> actionToNode;
 	SnapVector<const CycleNode *> * queue;
 
-#if SUPPORT_MOD_ORDER_DUMP
-	SnapVector<CycleNode *> nodeList;
-#endif
+	/** Detect cycle */
+    bool dfsCycleDetect(CycleNode* node, std::unordered_map<CycleNode*, int>& state);
+
 
 	bool checkReachable(const CycleNode *from, const CycleNode *to) const;
 };

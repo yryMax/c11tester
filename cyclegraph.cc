@@ -3,6 +3,65 @@
 #include "common.h"
 #include "threads-model.h"
 #include "clockvector.h"
+#include <unordered_map>
+
+enum NodeState { WHITE, GRAY, BLACK }; // Unvisited, been visited, fully processed
+
+// DFS function to detect cycles
+bool CycleGraph::dfsCycleDetect(CycleNode* node, std::unordered_map<CycleNode*, int>& state) {
+    if (state[node] == GRAY) {
+        return true;
+    }
+    if (state[node] == BLACK) {
+        return false; // Already fully processed, no need to check again
+    }
+
+    state[node] = GRAY;
+
+    for (unsigned int i = 0; i < node->getNumEdges(); i++) {
+        if (dfsCycleDetect(node->getEdge(i), state)) {
+            return true;
+        }
+    }
+
+    // Mark node as fully processed
+    state[node] = BLACK;
+    return false;
+}
+
+// Public function to check if the CycleGraph contains a cycle
+// Returns true if a cycle is found, false otherwise
+bool CycleGraph::hasCycle() {
+    std::unordered_map<CycleNode*, int> state;
+
+
+    for (unsigned int i = 0; i < actionToNode.capacity; i++) {
+        struct hashlistnode<const ModelAction *, CycleNode *> *node = &actionToNode.table[i];
+        if (node->key != NULL) {
+            state[node->val] = WHITE;
+        }
+    }
+    if (actionToNode.zero != NULL) {
+        state[actionToNode.zero->val] = WHITE;
+    }
+
+
+    for (unsigned int i = 0; i < actionToNode.capacity; i++) {
+        struct hashlistnode<const ModelAction *, CycleNode *> *node = &actionToNode.table[i];
+        if (node->key != NULL && state[node->val] == WHITE) {
+            if (dfsCycleDetect(node->val, state)) {
+                return true;
+            }
+        }
+    }
+    if (actionToNode.zero != NULL && state[actionToNode.zero->val] == WHITE) {
+        if (dfsCycleDetect(actionToNode.zero->val, state)) {
+            return true;
+        }
+    }
+
+    return false;
+}
 
 /** Initializes a CycleGraph object. */
 CycleGraph::CycleGraph() :
@@ -24,9 +83,7 @@ CycleGraph::~CycleGraph()
 void CycleGraph::putNode(const ModelAction *act, CycleNode *node)
 {
 	actionToNode.put(act, node);
-#if SUPPORT_MOD_ORDER_DUMP
 	nodeList.push_back(node);
-#endif
 }
 
 /** @return The corresponding CycleNode, if exists; otherwise NULL */
@@ -226,17 +283,15 @@ static void print_edge(FILE *file, const CycleNode *from, const CycleNode *to, c
 
 void CycleGraph::dot_print_node(FILE *file, const ModelAction *act)
 {
-	print_node(file, getNode(act), 1);
+    print_node(file, getNode(const_cast<ModelAction*>(act)), 1);
 }
 
 void CycleGraph::dot_print_edge(FILE *file, const ModelAction *from, const ModelAction *to, const char *prop)
 {
-	CycleNode *fromnode = getNode(from);
-	CycleNode *tonode = getNode(to);
-
-	print_edge(file, fromnode, tonode, prop);
+    CycleNode *fromnode = getNode(const_cast<ModelAction*>(from));
+    CycleNode *tonode = getNode(const_cast<ModelAction*>(to));
+    print_edge(file, fromnode, tonode, prop);
 }
-
 void CycleGraph::dumpNodes(FILE *file) const
 {
 	for (unsigned int i = 0;i < nodeList.size();i++) {
