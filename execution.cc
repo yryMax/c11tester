@@ -678,7 +678,7 @@ bool ModelExecution::process_mutex(ModelAction *curr)
  */
 void ModelExecution::process_write(ModelAction *curr)
 {
-    wMap->add(curr);
+   // wMap->add(curr);
 	w_modification_order(curr);
 	get_thread(curr)->set_return_value(VALUE_NONE);
 }
@@ -1009,6 +1009,7 @@ ModelAction * ModelExecution::process_rmw(ModelAction *act) {
 	ModelAction *lastread = get_last_action(act->get_tid());
 	lastread->process_rmw(act);
 	if (act->is_rmw()) {
+        lastread->get_cv()->merge(lastread->get_reads_from()->get_cv());
 		mo_graph->addRMWEdge(lastread->get_reads_from(), lastread);
 	}
 	return lastread;
@@ -1271,6 +1272,13 @@ void ModelExecution::w_modification_order(ModelAction *curr)
 			}
 		}
 	}
+    //travel through the edge set
+    sllnode<ModelAction*> *curr_p = edgeset.begin();
+    while (curr_p != NULL) {
+        ModelAction* action = curr_p->getVal();
+        curr->get_cv()->merge(action->get_cv());
+        curr_p = curr_p->getNext();
+    }
 	mo_graph->addEdges(&edgeset, curr);
 
 }
