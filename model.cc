@@ -310,6 +310,10 @@ void ModelChecker::finish_execution(bool more_executions)
 		if (execution->is_deadlocked())
 			assert_bug("Deadlock detected");
 
+        if ( execution->checkCycleGraph()){
+            model_print("Violating SC\n");
+        }
+
 		run_trace_analyses();
 	}
 

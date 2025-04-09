@@ -190,7 +190,7 @@ public:
 	unsigned int hash() const;
 	bool equals(const ModelAction *x) const { return this == x; }
 	void set_value(uint64_t val) { value = val; }
-
+    const char * get_type_str() const;
 	/* to accomodate pthread create and join */
 	Thread * thread_operand;
 	void set_thread_operand(Thread *th) { thread_operand = th; }
@@ -200,7 +200,7 @@ public:
 
 	SNAPSHOTALLOC
 private:
-	const char * get_type_str() const;
+
 	const char * get_mo_str() const;
 
 	/** @brief A pointer to the memory location for this action. */

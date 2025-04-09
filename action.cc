@@ -179,7 +179,6 @@ ModelAction::ModelAction(action_type_t type, const char * position, memory_order
 {
 	/* References to NULL atomic variables can end up here */
 	ASSERT(loc || type == ATOMIC_FENCE);
-
 	Thread *t = thread ? thread : thread_current();
 	this->tid = t->get_id();
 }

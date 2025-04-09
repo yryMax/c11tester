@@ -17,6 +17,8 @@
 #include "fuzzer.h"
 #include "simple_graph.h"
 
+
+
 #ifdef COLLECT_STAT
 static unsigned int atomic_load_count = 0;
 static unsigned int atomic_store_count = 0;
@@ -78,6 +80,7 @@ ModelExecution::ModelExecution(ModelChecker *m, Scheduler *scheduler) :
 	thrd_last_fence_release(),
 	priv(new struct model_snapshot_members ()),
 	mo_graph(new CycleGraph()),
+    wMap(new w_map()),
 	fuzzer(new Fuzzer()),
 	isfinished(false)
 {
@@ -90,6 +93,77 @@ ModelExecution::ModelExecution(ModelChecker *m, Scheduler *scheduler) :
 	pthread_key_create(&pthreadkey, tlsdestructor);
 #endif
 }
+
+bool ModelExecution::checkCycleGraph(){
+    Graph g;
+    model_print("________________IN r_checkCycleGraph__________________\n");
+
+
+    for (unsigned int i = 0; i < mo_graph->nodeList.size(); i++) {
+        CycleNode* n = mo_graph->nodeList[i];
+        unsigned int src_seq = n->getAction()->get_seq_number();
+
+
+        // mo
+        for (unsigned int j = 0; j < n->getNumEdges(); j++) {
+            unsigned int dest_seq = n->getEdge(j)->getAction()->get_seq_number();
+            g.add_edge(src_seq, dest_seq);
+            model_print("Adding mo edge %u -> %u\n", src_seq, dest_seq);
+        }
+    }
+
+    ModelAction** thread_array = (ModelAction**)model_calloc(1, sizeof(ModelAction*) * get_num_threads());
+
+    for (sllnode<ModelAction*>* it = action_trace.begin();it != NULL;it=it->getNext()) {
+        ModelAction* act = it->getVal();
+        unsigned int act_seq = act->get_seq_number();
+        bool is_write = act->is_write();
+
+        // rf
+        if (act->is_read()) {
+            ModelAction* rf = act->get_reads_from();
+            if (rf) {
+                g.add_edge(rf->get_seq_number(), act_seq);
+                model_print("Adding rf edge %u -> %u\n", rf->get_seq_number(), act_seq);
+            }
+        }
+        int tid = act->get_tid();
+        if (thread_array[tid]) {
+            g.add_edge(thread_array[id_to_int(tid)]->get_seq_number(), act_seq);
+            model_print("Adding po edge %u -> %u\n", thread_array[id_to_int(tid)]->get_seq_number(), act_seq);
+        }
+        thread_array[tid] = act;
+
+        if (act->is_read()) {
+            ModelAction* rf = act->get_reads_from();
+            if (rf) {
+                for (sllnode<ModelAction*>* it2 = action_trace.begin(); it2 != NULL; it2 = it2->getNext()) {
+                    ModelAction* later_act = it2->getVal();
+                    if (later_act == act) continue;
+                    if (later_act->is_write() && later_act->same_var(act)) {
+                        if (g.is_reachable(rf->get_seq_number(), later_act->get_seq_number()) && rf != later_act) {
+                            g.add_edge(act_seq, later_act->get_seq_number());
+                            model_print("Adding fr edge %u -> %u\n", act_seq, later_act->get_seq_number());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    model_free(thread_array);
+
+    if (g.has_cycle()) {
+        model_print("________________FOUND CYCLE in checkCycleGraph__________________\n");
+        return true;
+    } else {
+        model_print("______________NO CYCLE in checkCycleGraph__________________\n");
+        return false;
+    }
+
+
+}
+
 
 /** @brief Destructor */
 ModelExecution::~ModelExecution()
@@ -420,7 +494,7 @@ bool ModelExecution::process_read(ModelAction *curr, SnapVector<ModelAction *> *
 			for(unsigned int i=0;i<priorset->size();i++) {
 				mo_graph->addEdge((*priorset)[i], rf);
 			}
-			read_from(curr, rf);
+			read_from_sc(curr, rf);
 			get_thread(curr)->set_return_value(rf->get_write_value());
 			delete priorset;
 			//Update acquire fence clock vector
@@ -435,6 +509,27 @@ bool ModelExecution::process_read(ModelAction *curr, SnapVector<ModelAction *> *
 	}
 }
 
+
+void ModelExecution::process_read_sc(ModelAction *curr) {
+    char buffer[32];
+    std::snprintf(buffer, sizeof(buffer), "%14p", curr->get_location());
+    model_print("add new read: %u from %s\n", curr->get_seq_number(), buffer);
+    std::set<ModelAction*> rf_set = wMap->get_set(curr);
+    // print all possible rf_set
+    for (std::set<ModelAction*>::iterator it = rf_set.begin(); it != rf_set.end(); ++it) {
+        ModelAction* rf = *it;
+        model_print("rf_set: %u ", rf->get_seq_number());
+    }
+    model_print("\n");
+    ASSERT(rf_set.size() > 0);
+    int random_index = random() % rf_set.size();
+    std::set<ModelAction*>::iterator it = rf_set.begin();
+    std::advance(it, random_index);
+    ModelAction *rf = *it;
+    read_from(curr, rf);
+    get_thread(curr)->set_return_value(rf->get_write_value());
+
+}
 /**
  * Processes a lock, trylock, or unlock model action.  @param curr is
  * the read model action to process.
@@ -583,9 +678,14 @@ bool ModelExecution::process_mutex(ModelAction *curr)
  */
 void ModelExecution::process_write(ModelAction *curr)
 {
+    wMap->add(curr);
 	w_modification_order(curr);
 	get_thread(curr)->set_return_value(VALUE_NONE);
 }
+
+
+
+
 
 /**
  * Process a fence ModelAction
@@ -751,6 +851,19 @@ void ModelExecution::read_from(ModelAction *act, ModelAction *rf)
 	}
 }
 
+void ModelExecution::read_from_sc(ModelAction *act, ModelAction *rf)
+{
+    ASSERT(rf);
+    ASSERT(rf->is_write());
+
+    act->set_read_from(rf);
+    ClockVector *cv = get_hb_from_write(rf);
+    if (cv == NULL)
+        return;
+    act->get_cv()->merge(cv);
+
+}
+
 /**
  * @brief Synchronizes two actions
  *
@@ -843,7 +956,24 @@ ModelAction * ModelExecution::check_current_action(ModelAction *curr)
 	bool canprune = false;
 	/* Build may_read_from set for newly-created actions */
 	if (curr->is_read() && newly_explored) {
-		rf_set = build_may_read_from(curr);
+		rf_set = build_may_read_from_sc(curr);
+
+        //print rf_set
+
+        model_print("my set: ");
+        SnapVector<ModelAction *> * rf_set2 = build_may_read_from(curr);
+        for (unsigned int i = 0; i < rf_set->size(); i++){
+            ModelAction *action = (*rf_set)[i];
+            model_print("%u ", action->get_seq_number());
+        }
+        /// TODO: 对于每个写 维护最新可见的W，这个和线程无关
+        model_print("\n");
+        model_print("c11 set: ");
+        for (unsigned int i = 0; i < rf_set2->size(); i++){
+            ModelAction *action = (*rf_set2)[i];
+            model_print("%u ", action->get_seq_number());
+        }
+        model_print("\n");
 		canprune = process_read(curr, rf_set);
 		delete rf_set;
 	} else
@@ -903,6 +1033,12 @@ ModelAction * ModelExecution::process_rmw(ModelAction *act) {
  *        False by default.
  * @return True if modification order edges were added; false otherwise
  */
+
+void ModelExecution::process_write_sc(ModelAction *curr)
+{
+
+    get_thread(curr)->set_return_value(VALUE_NONE);
+}
 
 bool ModelExecution::r_modification_order(ModelAction *curr, const ModelAction *rf,
 																					SnapVector<ModelAction *> * priorset, bool * canprune)
@@ -1021,6 +1157,10 @@ bool ModelExecution::r_modification_order(ModelAction *curr, const ModelAction *
 			}
 		}
 	}
+    /*
+    if( checkCycleGraph(curr, rf, priorset)) {
+        return false;
+    }*/
 	return true;
 }
 
@@ -1205,6 +1345,7 @@ ClockVector * ModelExecution::get_hb_from_write(ModelAction *rf) const {
  * @param act is the ModelAction to add.
  */
 void ModelExecution::add_action_to_lists(ModelAction *act, bool canprune)
+
 {
 	int tid = id_to_int(act->get_tid());
 	if ((act->is_fence() && act->is_seqcst()) || act->is_unlock()) {
@@ -1507,6 +1648,86 @@ SnapVector<ModelAction *> *  ModelExecution::build_may_read_from(ModelAction *cu
 	return rf_set;
 }
 
+
+SnapVector<ModelAction *> *  ModelExecution::build_may_read_from_sc(ModelAction *curr)
+{
+    SnapVector<simple_action_list_t> *thrd_lists = obj_wr_thrd_map.get(curr->get_location());
+    unsigned int i;
+    ASSERT(curr->is_read());
+
+    ModelAction *last_sc_write = NULL;
+
+    if (curr->is_seqcst())
+        last_sc_write = get_last_seq_cst_write(curr);
+
+    SnapVector<ModelAction *> * rf_set = new SnapVector<ModelAction *>();
+
+    /* Iterate over all threads */
+    if (thrd_lists != NULL)
+        for (i = 0;i < thrd_lists->size();i++) {
+            /* Iterate over actions in thread, starting from most recent */
+            simple_action_list_t *list = &(*thrd_lists)[i];
+            sllnode<ModelAction *> * rit;
+            for (rit = list->end();rit != NULL;rit=rit->getPrev()) {
+                ModelAction *act = rit->getVal();
+
+                if (act == curr)
+                    continue;
+
+                /* Don't consider more than one seq_cst write if we are a seq_cst read. */
+                bool allow_read = true;
+
+                if (curr->is_seqcst() && (act->is_seqcst() || (last_sc_write != NULL && act->happens_before(last_sc_write))) && act != last_sc_write)
+                    allow_read = false;
+
+                /* Need to check whether we will have two RMW reading from the same value */
+                if (curr->is_rmwr()) {
+                    /* It is okay if we have a failing CAS */
+                    if (!curr->is_rmwrcas() ||
+                        valequals(curr->get_value(), act->get_value(), curr->getSize())) {
+                        //Need to make sure we aren't the second RMW
+                        CycleNode * node = mo_graph->getNode_noCreate(act);
+                        if (node != NULL && node->getRMW() != NULL) {
+                            //we are the second RMW
+                            allow_read = false;
+                        }
+                    }
+                }
+
+                if (allow_read) {
+                    /* Only add feasible reads */
+                    bool should_add = true;
+                    for (unsigned int i = rf_set->size(); i > 0; i--) {
+                        unsigned int index = i - 1; // 因为 i 是从 size() 到 1，索引从 size()-1 到 0
+                        ModelAction *action = (*rf_set)[index];
+                        if (act->happens_before(action)) {
+                            should_add = false;
+                            break;
+                        }
+                        if (action->happens_before(act)) {
+                            rf_set->removeAt(index);
+                        }
+                    }
+                    if(should_add) {
+                        rf_set->push_back(act);
+                    }
+                    break;
+                }
+
+                /* Include at most one act per-thread that "happens before" curr */
+                if (act->happens_before(curr))
+                    break;
+            }
+        }
+
+    if (DBG_ENABLED()) {
+        model_print("Reached read action:\n");
+        curr->print();
+        model_print("End printing read_from_past\n");
+    }
+    return rf_set;
+}
+
 static void print_list(action_list_t *list)
 {
 	sllnode<ModelAction*> *it;
@@ -1734,6 +1955,13 @@ Thread * ModelExecution::action_select_next_thread(const ModelAction *curr) cons
  */
 Thread * ModelExecution::take_step(ModelAction *curr)
 {
+
+    const char *type_str = curr->get_type_str();
+
+    //model_print("%-4d  %-2d   %-14s",
+     //           curr->get_seq_number(), id_to_int(curr->get_tid()), type_str);
+
+
 	Thread *curr_thrd = get_thread(curr);
 	ASSERT(curr_thrd->get_state() == THREAD_READY);
 

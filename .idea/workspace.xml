@@ -24,9 +24,15 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="77354df0-71a3-4dc6-b447-98ef0ecc74e2" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/w_map.cc" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/w_map.h" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cyclegraph.cc" beforeDir="false" afterPath="$PROJECT_DIR$/cyclegraph.cc" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cyclegraph.h" beforeDir="false" afterPath="$PROJECT_DIR$/cyclegraph.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Makefile" beforeDir="false" afterPath="$PROJECT_DIR$/Makefile" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/action.cc" beforeDir="false" afterPath="$PROJECT_DIR$/action.cc" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/action.h" beforeDir="false" afterPath="$PROJECT_DIR$/action.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/execution.cc" beforeDir="false" afterPath="$PROJECT_DIR$/execution.cc" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/execution.h" beforeDir="false" afterPath="$PROJECT_DIR$/execution.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/model.cc" beforeDir="false" afterPath="$PROJECT_DIR$/model.cc" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -42,6 +48,11 @@
     </projectState>
   </component>
   <component name="Git.Settings">
+    <option name="RECENT_BRANCH_BY_REPOSITORY">
+      <map>
+        <entry key="$PROJECT_DIR$" value="tmp" />
+      </map>
+    </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
   <component name="MakefileLocalSettings">
@@ -73,6 +84,12 @@
   </component>
   <component name="MarkdownSettingsMigration">
     <option name="stateVersion" value="1" />
+  </component>
+  <component name="OCResolveContextSettings">
+    <option name="configuration" value="$PROJECT_DIR$/threads.cc" />
+  </component>
+  <component name="ProblemsViewState">
+    <option name="selectedTabId" value="ProjectErrors" />
   </component>
   <component name="ProjectApplicationVersion">
     <option name="ide" value="CLion" />
@@ -192,6 +209,8 @@
       <workItem from="1742570561142" duration="151000" />
       <workItem from="1742860800136" duration="2079000" />
       <workItem from="1742900563470" duration="4535000" />
+      <workItem from="1744159918522" duration="3785000" />
+      <workItem from="1744189998228" duration="2696000" />
     </task>
     <servers />
   </component>
@@ -208,15 +227,5 @@
         </entry>
       </map>
     </option>
-  </component>
-  <component name="XDebuggerManager">
-    <breakpoint-manager>
-      <breakpoints>
-        <line-breakpoint enabled="true" type="com.jetbrains.cidr.execution.debugger.OCBreakpointType">
-          <url>file://$PROJECT_DIR$/execution.cc</url>
-          <option name="timeStamp" value="1" />
-        </line-breakpoint>
-      </breakpoints>
-    </breakpoint-manager>
   </component>
 </project>

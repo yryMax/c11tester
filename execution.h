@@ -18,6 +18,7 @@
 #include "mutex.h"
 #include <condition_variable>
 #include "classlist.h"
+#include "w_map.h"
 
 #define INITIAL_THREAD_ID	0
 #define MAIN_THREAD_ID		1
@@ -90,6 +91,7 @@ public:
 	HashTable<pthread_cond_t *, cdsc::snapcondition_variable *, uintptr_t, 4> * getCondMap() {return &cond_map;}
 	HashTable<pthread_mutex_t *, cdsc::snapmutex *, uintptr_t, 4> * getMutexMap() {return &mutex_map;}
 	ModelAction * check_current_action(ModelAction *curr);
+    bool checkCycleGraph();
 
 	bool isFinished() {return isfinished;}
 	void setFinished() {isfinished = true;}
@@ -108,11 +110,14 @@ private:
 	bool next_execution();
 	bool initialize_curr_action(ModelAction **curr);
 	bool process_read(ModelAction *curr, SnapVector<ModelAction *> * rf_set);
+    void process_read_sc(ModelAction *curr);
 	void process_write(ModelAction *curr);
+    void process_write_sc(ModelAction *curr);
 	void process_fence(ModelAction *curr);
 	bool process_mutex(ModelAction *curr);
 	void process_thread_action(ModelAction *curr);
 	void read_from(ModelAction *act, ModelAction *rf);
+    void read_from_sc(ModelAction *act, ModelAction *rf);
 	bool synchronize(const ModelAction *first, ModelAction *second);
 	void add_action_to_lists(ModelAction *act, bool canprune);
 	void add_normal_write_to_lists(ModelAction *act);
@@ -121,7 +126,8 @@ private:
 	ModelAction * get_last_seq_cst_write(ModelAction *curr) const;
 	ModelAction * get_last_seq_cst_fence(thread_id_t tid, const ModelAction *before_fence) const;
 	ModelAction * get_last_unlock(ModelAction *curr) const;
-	SnapVector<ModelAction *> * build_may_read_from(ModelAction *curr);
+    SnapVector<ModelAction *> * build_may_read_from(ModelAction *curr);
+    SnapVector<ModelAction *> * build_may_read_from_sc(ModelAction *curr);
 	ModelAction * process_rmw(ModelAction *curr);
 	bool r_modification_order(ModelAction *curr, const ModelAction *rf, SnapVector<ModelAction *> *priorset, bool *canprune);
 	void w_modification_order(ModelAction *curr);
@@ -203,6 +209,8 @@ private:
 	 * <tt>b</tt>.
 	 */
 	CycleGraph * const mo_graph;
+
+    w_map * wMap;
 
 	Fuzzer * fuzzer;
 
